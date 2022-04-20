@@ -1,4 +1,5 @@
 from importlib import import_module
+from logging import Logger
 from types import ModuleType
 from typing import Any, List, Tuple
 
@@ -177,26 +178,33 @@ class MqttModule(Module):
         return None
 
 
+injector_modules: List[Module] = []
+module_config_keys: List[str] = []
+
+storage_key: str = "storage"
+mission_planner_key: str = "mission_planner"
+mqtt_enabled_key: str = "mqtt_enabled"
+robot_key: str = "robot"
 modules: dict = {
     "api": {"default": APIModule},
     "authentication": {"default": AuthenticationModule},
     "queues": {"default": QueuesModule},
     "request_handler": {"default": RequestHandlerModule},
-    "robot": {"default": RobotModule},
-    "mission_planner": {
+    robot_key: {"default": RobotModule},
+    mission_planner_key: {
         "default": LocalPlannerModule,
         "local": LocalPlannerModule,
         "echo": EchoPlannerModule,
     },
     "service": {"default": ServiceModule},
     "state_machine": {"default": StateMachineModule},
-    "storage": {
+    storage_key: {
         "default": LocalStorageModule,
         "local": LocalStorageModule,
         "blob": BlobStorageModule,
         "slimm": SlimmStorageModule,
     },
-    "mqtt_enabled": {
+    mqtt_enabled_key: {
         "default": MqttModule,
         False: MqttModule,
         True: MqttModule,
@@ -205,47 +213,60 @@ modules: dict = {
 }
 
 configurable_modules: List[str] = [
-    "storage",
-    "mission_planner",
-    "mqtt_enabled",
+    storage_key,
+    mission_planner_key,
+    mqtt_enabled_key,
+    robot_key,
 ]
 
 
 def get_injector_modules() -> Tuple[List[Module], List[str]]:
-    injector_modules: List[Module] = []
-    module_config_keys: List[str] = []
-
     for module_key, module in modules.items():
         if module_key in configurable_modules:
             module_config_key: Any = _get_setting_for_module(module_key=module_key)
-
             # The configuration contains a list of options
             if type(module_config_key) is list:
                 for key in module_config_key:
-                    injector_modules.append(module[key])
-                    module_config_keys.append(f"{module_key} : {key}")
+                    _append_key(module_key, key, module)
 
             # A single configuration is selected
             else:
-                injector_modules.append(module[module_config_key])
-                module_config_keys.append(f"{module_key} : {module_config_key}")
+                _append_key(module_key, module_config_key, module)
 
         # Use default module
         else:
-            injector_modules.append(module["default"])
-            module_config_keys.append(f"{module_key} : default")
+            _append_key(module_key, "default", module)
 
     return injector_modules, module_config_keys
 
 
 def _get_setting_for_module(module_key: str):
-    if module_key == "mission_planner":
+    if module_key == mission_planner_key:
         return settings.MISSION_PLANNER
-    elif module_key == "storage":
+    elif module_key == storage_key:
         return settings.STORAGE
-    elif module_key == "mqtt_enabled":
+    elif module_key == mqtt_enabled_key:
         return settings.MQTT_ENABLED
+    elif module_key == robot_key:
+        return settings.ROBOT_PACKAGE
     else:
         raise ConfigurationError(
             "Configurable module key did not have a matching setting"
         )
+
+
+def _append_key(module_key: str, config_key: str, key_to_module):
+    injected_module: Module
+    # Robot module is unique because it is imported externally as python package
+    if key_to_module["default"] is RobotModule:
+        injected_module = RobotModule
+    else:
+        injected_module = key_to_module[config_key]
+    injector_modules.append(injected_module)
+    module_config_keys.append(
+        "   "
+        + f"{module_key}".ljust(15)
+        + " : "
+        + f"{config_key}".ljust(20)
+        + f" ({injected_module.__name__})"
+    )
