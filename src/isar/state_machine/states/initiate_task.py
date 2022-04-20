@@ -116,7 +116,7 @@ class InitiateTask(State):
                 break
             else:
                 self.initiate_task_failure_counter += 1
-                self.logger.info(
+                self.logger.warning(
                     f"Initiating task failed #: {str(self.initiate_task_failure_counter)}"
                 )
                 if (
